@@ -1,0 +1,71 @@
+name: build-and-capture-chromium
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_path:
+        description: Path to the sample manifest in this repo
+        required: true
+        default: experiments/chromium_capture_ci/manifests/two_cases_local_html.json
+      use_self_hosted_build:
+        description: Build Chromium on self-hosted runner (true/false)
+        required: true
+        default: "true"
+
+jobs:
+  build-patched-headless-shell:
+    if: ${{ inputs.use_self_hosted_build == 'true' }}
+    runs-on: [self-hosted, linux, x64, chromium-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image for Chromium build environment
+        run: docker build -t chromium-ci -f experiments/chromium_capture_ci/docker/chromium-ci.Dockerfile .
+
+      - name: Build patched headless_shell
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo \
+            chromium-ci \
+            bash experiments/chromium_capture_ci/scripts/build_chromium.sh
+
+      - name: Upload built Chromium artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-headless-shell
+          path: artifacts/build/
+          if-no-files-found: error
+
+  capture-dataset:
+    needs: [build-patched-headless-shell]
+    if: ${{ always() && (needs.build-patched-headless-shell.result == 'success' || inputs.use_self_hosted_build != 'true') }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download built Chromium artifact
+        if: ${{ inputs.use_self_hosted_build == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: patched-headless-shell
+          path: artifacts/build
+
+      - name: Install Python dependencies for capture
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install websocket-client
+
+      - name: Run dataset capture
+        run: |
+          python3 experiments/chromium_capture_ci/scripts/run_capture.py \
+            --manifest "${{ inputs.manifest_path }}" \
+            --binary artifacts/build/headless_shell \
+            --output-dir artifacts/dataset
+
+      - name: Upload dataset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromium-capture-dataset
+          path: artifacts/dataset/
+          if-no-files-found: error
