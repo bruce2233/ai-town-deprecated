@@ -1,10 +1,11 @@
-
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { AgentState, AgentConfig, Message } from './types.js'; // Ensure AgentEvent types are compatible or redeclared
+import createSagaMiddleware from 'redux-saga';
+import { AgentState, AgentConfig, Message } from './types.js';
 import { TOOLS, getToolByName } from './tools.js';
 import { ChatCompletionMessage } from 'openai/resources/chat/completions';
+import { rootSaga } from './sagas/index.js';
 
-// Helper to build system prompt (same as before)
+// ... helper buildSystemPrompt ...
 const SYSTEM_TEMPLATE = "You are ${name}. Persona: ${persona}.\n" +
     "You are in AI Town. \n" +
     "Received message from \"${sender}\" on topic \"${topic}\": \"${content}\"\n" +
@@ -25,6 +26,7 @@ function buildSystemPrompt(config: AgentConfig, msg: Message): string {
 
 const MAX_TURNS = 5;
 
+// Removed 'effects' from State
 const initialState: AgentState = {
     id: '',
     config: { name: '', persona: '' },
@@ -32,7 +34,6 @@ const initialState: AgentState = {
     workingMemory: [],
     history: [],
     turnsInCurrentRequest: 0,
-    effects: []
 };
 
 const agentSlice = createSlice({
@@ -43,16 +44,14 @@ const agentSlice = createSlice({
             state.id = action.payload.name;
             state.config = action.payload;
             state.status = 'IDLE';
-            state.effects = [];
         },
         messageReceived: (state, action: PayloadAction<Message>) => {
             const message = action.payload;
+            // Basic Busy Check
             if (state.status !== 'IDLE') {
-                state.effects.push({ type: 'LOG', message: `[Warn] Busy. Dropped: ${message.topic}` });
                 return;
             }
             if (message.sender === state.id) return;
-            // Ignore status
             if (message.topic === 'system:status') return;
 
             // Start Thinking
@@ -63,9 +62,7 @@ const agentSlice = createSlice({
                 { role: 'system', content: sysPrompt },
                 { role: 'user', content: 'How do you respond?' }
             ];
-
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            state.effects.push({ type: 'CALL_LLM', messages: state.workingMemory, tools: TOOLS.map(({ execute, ...rest }) => rest) });
+            // Saga listens for this action and triggers API call
         },
         llmCompleted: (state, action: PayloadAction<ChatCompletionMessage>) => {
             if (state.status !== 'THINKING') return;
@@ -74,38 +71,12 @@ const agentSlice = createSlice({
             state.workingMemory.push(response);
 
             if (response.tool_calls && response.tool_calls.length > 0) {
-                const toolCall = response.tool_calls[0];
-                const toolDef = getToolByName(toolCall.function.name);
-
-                if (toolDef) {
-                    state.status = 'EXECUTING_TOOL';
-                    state.effects.push({
-                        type: 'EXECUTE_TOOL',
-                        toolCall: { id: toolCall.id, function: toolCall.function }
-                    });
-                } else {
-                    // Error handling for missing tool
-                    state.workingMemory.push({ role: 'tool', tool_call_id: toolCall.id, content: 'Error: Tool not found' });
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    state.effects.push({ type: 'CALL_LLM', messages: state.workingMemory, tools: TOOLS.map(({ execute, ...rest }) => rest) });
-                }
+                state.status = 'EXECUTING_TOOL';
+                // Saga listens for this action and executes tool
             } else {
-                // Text Reply
-                const content = response.content || '';
-                if (content) {
-                    const firstMsgContent = state.workingMemory?.[0]?.content;
-                    const isSenderAdmin = typeof firstMsgContent === 'string' && firstMsgContent.includes('sender');
-                    let topic = `agent:${isSenderAdmin ? 'admin' : 'unknown'}:inbox`;
-
-                    if (content.includes('>>> TO:')) {
-                        const match = content.match(/>>> TO: (\S+)/);
-                        if (match) topic = match[1];
-                    }
-
-                    state.effects.push({ type: 'PUBLISH', topic, content });
-                }
                 state.status = 'IDLE';
                 state.workingMemory = [];
+                // Saga listens for this and publishes if content exists
             }
         },
         toolCompleted: (state, action: PayloadAction<{ callId: string, result: string }>) => {
@@ -116,36 +87,46 @@ const agentSlice = createSlice({
             state.turnsInCurrentRequest++;
 
             if (state.turnsInCurrentRequest >= MAX_TURNS) {
-                state.effects.push({ type: 'LOG', message: 'Max turns reached' });
                 state.status = 'IDLE';
+                // Maybe log max turns?
             } else {
                 state.status = 'THINKING';
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                state.effects.push({ type: 'CALL_LLM', messages: state.workingMemory, tools: TOOLS.map(({ execute, ...rest }) => rest) });
+                // Saga loops back to LLM
             }
         },
         errorOccurred: (state, action: PayloadAction<string>) => {
-            state.effects.push({ type: 'LOG', message: `Error: ${action.payload}` });
             state.status = 'IDLE';
         },
-        consumeEffects: (state) => {
-            // Clear the effects queue
-            state.effects = [];
-        }
+        // We no longer need consumeEffects
     }
 });
 
-export const { init, messageReceived, llmCompleted, toolCompleted, errorOccurred, consumeEffects } = agentSlice.actions;
+export const { init, messageReceived, llmCompleted, toolCompleted, errorOccurred } = agentSlice.actions;
 
-export const createAgentStore = (config: AgentConfig) => {
+export const createAgentStore = (config: AgentConfig, runSagas = true) => {
+    const sagaMiddleware = createSagaMiddleware();
     const store = configureStore({
-        reducer: agentSlice.reducer,
+        reducer: {
+            agent: agentSlice.reducer
+        },
         preloadedState: {
-            ...initialState,
-            id: config.name,
-            config: config
-        }
+            agent: {
+                ...initialState,
+                id: config.name,
+                config: config
+            }
+        },
+        // Disable all default middleware (Thunk, ImmutableCheck, SerializableCheck)
+        // to prevent performance issues with large LLM objects and avoid Invariant errors in tests.
+        middleware: () => [sagaMiddleware] as any
     });
+
+    // Run the Saga
+    if (runSagas) {
+        const task = sagaMiddleware.run(rootSaga);
+        (store as any).rootTask = task;
+    }
+
     return store;
 };
 

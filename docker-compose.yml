@@ -1,19 +1,6 @@
 version: '3.8'
 
 services:
-  broker:
-    build: ./broker
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./broker:/app
-      - /app/node_modules
-    environment:
-      - PORT=8080
-      - NODE_ENV=development
-    networks:
-      - ai-town-net
-
   llm-gateway:
     build: ./llm-gateway
     ports:
@@ -27,16 +14,16 @@ services:
     networks:
       - ai-town-net
 
-  agents:
-    build: ./agents
+  world:
+    build: ./world
+    ports:
+      - "8080:8080"
     depends_on:
-      - broker
       - llm-gateway
     volumes:
-      - ./agents:/app
+      - ./world:/app
       - /app/node_modules
     environment:
-      - BROKER_URL=ws://broker:8080
       - LLM_API_URL=http://llm-gateway:8081/v1
       - LLM_API_KEY=${LLM_API_KEY:-dummy}
       - MODEL_NAME=${MODEL_NAME:-Qwen/Qwen3-4B-Instruct}

@@ -52,9 +52,6 @@ export interface AgentState {
 
     // Counters
     turnsInCurrentRequest: number;
-
-    // Side Effect Queue (Redux style)
-    effects: Effect[];
 }
 
 // --- Events (Input to Reducer) ---

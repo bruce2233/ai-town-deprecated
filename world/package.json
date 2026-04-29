@@ -1,5 +1,5 @@
 {
-  "name": "agents",
+  "name": "@ai-town/world",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -17,15 +17,18 @@
     "dotenv": "^17.2.3",
     "openai": "^4.0.0",
     "redux": "^5.0.1",
+    "redux-saga": "^1.4.2",
+    "rxjs": "^7.8.2",
     "tsx": "^4.21.0",
-    "ws": "^8.0.0"
+    "typed-redux-saga": "^1.5.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/eslint__js": "^8.42.3",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.19.25",
-    "@types/ws": "^8.0.0",
+    "@types/ws": "^8.18.1",
     "eslint": "^9.39.1",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.6",

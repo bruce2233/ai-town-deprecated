@@ -17,14 +17,8 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Lint Broker
-        working-directory: ./broker
-        run: |
-          npm ci
-          npm run lint
-          
-      - name: Lint Agents
-        working-directory: ./agents
+      - name: Lint World
+        working-directory: ./world
         run: |
           npm ci
           npm run lint
@@ -45,14 +39,8 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Test Broker
-        working-directory: ./broker
-        run: |
-          npm ci
-          npm test
-          
-      - name: Test Agents
-        working-directory: ./agents
+      - name: Test World
+        working-directory: ./world
         run: |
           npm ci
           npm test
@@ -95,13 +83,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      # Install ALL dependencies as the test spawns other services
+      # Install dependencies
       - run: npm ci
-        working-directory: broker
-      - run: npm ci
-        working-directory: agents
+        working-directory: world
       - run: npm install
         working-directory: integration-tests
       # Run the test
       - run: npm test
         working-directory: integration-tests
+
+
